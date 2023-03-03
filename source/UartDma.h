@@ -5,7 +5,7 @@
 *              operation of UART/DMA for this CE
 *
 *******************************************************************************
-* Copyright 2021-2022, Cypress Semiconductor Corporation (an Infineon company) or
+* Copyright 2021-2023, Cypress Semiconductor Corporation (an Infineon company) or
 * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
 *
 * This software, including source code, documentation and related
@@ -41,6 +41,11 @@
 #define UARTDMA_H_
 
 #include "cycfg.h"
+
+/*******************************************************************************
+*            Macros
+*******************************************************************************/
+#define CY_ASSERT_FAILED      (0u)
 
 /*******************************************************************************
 *            Constants

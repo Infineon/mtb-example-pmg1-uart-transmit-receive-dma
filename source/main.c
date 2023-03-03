@@ -7,7 +7,7 @@
 * Related Document: See README.md
 * 
 *******************************************************************************
-* Copyright 2021-2022, Cypress Semiconductor Corporation (an Infineon company) or
+* Copyright 2021-2023, Cypress Semiconductor Corporation (an Infineon company) or
 * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
 *
 * This software, including source code, documentation and related
@@ -43,22 +43,23 @@
 #include "cycfg.h"
 #include "cybsp.h"
 #include "UartDma.h"
-
+#include "stdio.h"
+#include <inttypes.h>
 
 /*******************************************************************************
-*            Constants
+*            Macros
 *******************************************************************************/
-#define CY_ASSERT_FAILED      (0u)
 #define UART_INT_PRIORITY     (3u)
 #define DMA_IRQ               (cpuss_interrupt_dma_IRQn)
 #define DMA_INT_PRIORITY      (3u)
 #define BUFFER_SIZE           (1u)
 
+/* Debug print macro to enable UART print */
+#define DEBUG_PRINT           (0u)
 
 /*******************************************************************************
 *            Forward declaration
 *******************************************************************************/
-void handle_error(void);
 void Isr_UART(void);
 
 
@@ -72,6 +73,42 @@ bool uart_error;
 extern bool rx_dma_done;
 extern bool tx_dma_error;
 extern bool rx_dma_error;
+
+/* Structure for UART Context */
+cy_stc_scb_uart_context_t CYBSP_UART_context;
+
+#if DEBUG_PRINT
+/* Variable used for tracking the print status */
+volatile bool ENTER_LOOP = true;
+
+/*******************************************************************************
+* Function Name: check_status
+********************************************************************************
+* Summary:
+*  Prints the error message.
+*
+* Parameters:
+*  error_msg - message to print if any error encountered.
+*  status - status obtained after evaluation.
+*
+* Return:
+*  void
+*
+*******************************************************************************/
+void check_status(char *message, cy_rslt_t status)
+{
+    char error_msg[50];
+
+    sprintf(error_msg, "Error Code: 0x%08" PRIX32 "\n", status);
+
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, "\r\n=====================================================\r\n");
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, "\nFAIL: ");
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, message);
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, "\r\n");
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, error_msg);
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, "\r\n=====================================================\r\n");
+}
+#endif
 
 
 /*******************************************************************************
@@ -95,13 +132,13 @@ extern bool rx_dma_error;
 int main(void)
 {
     cy_rslt_t result = CY_RSLT_SUCCESS;
+    cy_en_sysint_status_t intr_result;
 
     /* Variables to hold ping and pong buffer */
     uint8_t rx_dma_uart_buffer_a[BUFFER_SIZE];
     uint8_t rx_dma_uart_buffer_b[BUFFER_SIZE];
 
     cy_en_scb_uart_status_t init_status;
-    cy_stc_scb_uart_context_t KIT_UART_context;
 
     /* Flag to control which descriptor to use */
     cy_en_dmac_descriptor_t active_descr = CY_DMAC_DESCRIPTOR_PING;
@@ -112,13 +149,31 @@ int main(void)
     /* Halt the CPU if device initialization failed */
     if(result != CY_RSLT_SUCCESS)
     {
-        handle_error();
+        CY_ASSERT(CY_ASSERT_FAILED);
     }
 
-    /* UART interrupt initialization structure  */
-    cy_stc_sysint_t KIT_UART_INT_cfg =
+    /* Start UART operation */
+    init_status = Cy_SCB_UART_Init(CYBSP_UART_HW, &CYBSP_UART_config, &CYBSP_UART_context);
+    if (init_status != CY_SCB_UART_SUCCESS)
     {
-        .intrSrc      = KIT_UART_IRQ,
+        CY_ASSERT(CY_ASSERT_FAILED);
+    }
+
+    /* Enable the SCB block for the UART operation */
+    Cy_SCB_UART_Enable(CYBSP_UART_HW);
+
+    /* Transmit header to the terminal */
+    /* \x1b[2J\x1b[;H - ANSI ESC sequence for clear screen */
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, "\x1b[2J\x1b[;H");
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, "************************************************************\r\n");
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, "PMG1 MCU UART Transmit and Receive using DMA\r\n");
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, "************************************************************\r\n\n");
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, ">> Start typing to see the echo on the screen \r\n\n");
+
+    /* UART interrupt initialization structure  */
+    cy_stc_sysint_t CYBSP_UART_INT_cfg =
+    {
+        .intrSrc      = CYBSP_UART_IRQ,
         .intrPriority = UART_INT_PRIORITY
     };
 
@@ -137,30 +192,28 @@ int main(void)
     Cy_DMAC_SetInterruptMask(TxDma_HW, TXDMA_CHANNEL_INT_MASK | RXDMA_CHANNEL_INT_MASK);
 
     /* Initialize and enable the DMA interrupt */
-    Cy_SysInt_Init(&DMA_INT_cfg, &Isr_DMA);
+    intr_result = Cy_SysInt_Init(&DMA_INT_cfg, &Isr_DMA);
+    if (intr_result != CY_SYSINT_SUCCESS)
+    {
+#if DEBUG_PRINT
+        check_status("API Cy_SysInt_Init failed with error code", intr_result);
+#endif
+        CY_ASSERT(CY_ASSERT_FAILED);
+    }
+
     NVIC_EnableIRQ(DMA_INT_cfg.intrSrc);
 
     /* Initialize and enable the UART interrupt */
-    Cy_SysInt_Init(&KIT_UART_INT_cfg, &Isr_UART);
-    NVIC_EnableIRQ(KIT_UART_INT_cfg.intrSrc);
-
-    /* Start UART operation */
-    init_status = Cy_SCB_UART_Init(KIT_UART_HW, &KIT_UART_config, &KIT_UART_context);
-    if (init_status!=CY_SCB_UART_SUCCESS)
+    intr_result = Cy_SysInt_Init(&CYBSP_UART_INT_cfg, &Isr_UART);
+    if (intr_result != CY_SYSINT_SUCCESS)
     {
-        handle_error();
+#if DEBUG_PRINT
+        check_status("API Cy_SysInt_Init failed with error code", intr_result);
+#endif
+        CY_ASSERT(CY_ASSERT_FAILED);
     }
-
-    /* Enable the SCB block for the UART operation */
-    Cy_SCB_UART_Enable(KIT_UART_HW);
-
-    /* Transmit header to the terminal */
-    /* \x1b[2J\x1b[;H - ANSI ESC sequence for clear screen */
-    Cy_SCB_UART_PutString(KIT_UART_HW, "\x1b[2J\x1b[;H");
-    Cy_SCB_UART_PutString(KIT_UART_HW, "************************************************************\r\n");
-    Cy_SCB_UART_PutString(KIT_UART_HW, "PMG1 MCU UART Transmit and Receive using DMA\r\n");
-    Cy_SCB_UART_PutString(KIT_UART_HW, "************************************************************\r\n\n");
-    Cy_SCB_UART_PutString(KIT_UART_HW, ">> Start typing to see the echo on the screen \r\n\n");
+    
+    NVIC_EnableIRQ(CYBSP_UART_INT_cfg.intrSrc);
 
     /* Enable global interrupts */
     __enable_irq();
@@ -170,7 +223,7 @@ int main(void)
         /* Indicate status if RxDma error or TxDma error or UART error occurs */
         if(uart_error | tx_dma_error | rx_dma_error)
         {
-            handle_error();
+            CY_ASSERT(CY_ASSERT_FAILED);
         }
         /* Handle RxDma complete */
         if(rx_dma_done == true)
@@ -205,30 +258,15 @@ int main(void)
             Cy_DMAC_Channel_Enable(TxDma_HW, TxDma_CHANNEL);
             rx_dma_done = false;
         }
+#if DEBUG_PRINT
+        if (ENTER_LOOP)
+        {
+            Cy_SCB_UART_PutString(CYBSP_UART_HW, "Entered for loop\r\n");
+            ENTER_LOOP = false;
+        }
+#endif
     }
 }
-
-/*******************************************************************************
-* Function Name: handle_error
-********************************************************************************
-* Summary:
-* User defined error handling function
-*
-* Parameters:
-*  void
-*
-* Return:
-*  void
-*
-*******************************************************************************/
-void handle_error(void)
-{
-     /* Disable all interrupts. */
-    __disable_irq();
-
-    CY_ASSERT(CY_ASSERT_FAILED);
-}
-
 
 /*******************************************************************************
 * Function Name: Isr_UART
@@ -251,12 +289,12 @@ void Isr_UART(void)
     uint32_t tx_intr_src;
 
     /* Get RX interrupt sources */
-    rx_intr_src =  Cy_SCB_UART_GetRxFifoStatus(KIT_UART_HW);
-    Cy_SCB_UART_ClearRxFifoStatus(KIT_UART_HW, rx_intr_src);
+    rx_intr_src =  Cy_SCB_UART_GetRxFifoStatus(CYBSP_UART_HW);
+    Cy_SCB_UART_ClearRxFifoStatus(CYBSP_UART_HW, rx_intr_src);
 
     /* Get TX interrupt sources */
-    tx_intr_src =  Cy_SCB_UART_GetTxFifoStatus(KIT_UART_HW);
-    Cy_SCB_UART_ClearTxFifoStatus(KIT_UART_HW, tx_intr_src);
+    tx_intr_src =  Cy_SCB_UART_GetTxFifoStatus(CYBSP_UART_HW);
+    Cy_SCB_UART_ClearTxFifoStatus(CYBSP_UART_HW, tx_intr_src);
 
     /* RX overflow or RX underflow or TX overflow occurred */
     uart_error = 1;

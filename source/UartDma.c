@@ -5,7 +5,7 @@
 *              proper operation of UART/DMA for this CE
 *
 *******************************************************************************
-* Copyright 2021-2022, Cypress Semiconductor Corporation (an Infineon company) or
+* Copyright 2021-2023, Cypress Semiconductor Corporation (an Infineon company) or
 * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
 *
 * This software, including source code, documentation and related
@@ -40,12 +40,6 @@
 #include "cy_pdl.h"
 
 /*******************************************************************************
-*            Forward declaration
-*******************************************************************************/
-void handle_error(void);
-
-
-/*******************************************************************************
 *            Global variables
 *******************************************************************************/
 /* Variables set by the DMA ISR to indicate DMA transfer status */
@@ -78,7 +72,10 @@ void configure_rx_dma(uint8_t* buffer_a, uint8_t* buffer_b)
                                                &RxDma_ping_config);
     if(dmac_init_status != CY_DMAC_SUCCESS)
     {
-        handle_error();
+#if DEBUG_PRINT
+        check_status("API Cy_DMAC_Descriptor_Init failed with error code", dmac_init_status);
+#endif
+        CY_ASSERT(CY_ASSERT_FAILED);
     }
 
     /* Initialize PONG descriptor */
@@ -87,7 +84,10 @@ void configure_rx_dma(uint8_t* buffer_a, uint8_t* buffer_b)
                                                &RxDma_pong_config);
     if(dmac_init_status != CY_DMAC_SUCCESS)
     {
-        handle_error();
+#if DEBUG_PRINT
+        check_status("API Cy_DMAC_Descriptor_Init failed with error code", dmac_init_status);
+#endif
+        CY_ASSERT(CY_ASSERT_FAILED);
     }
 
     /* Initialize RxDma channel */
@@ -95,20 +95,23 @@ void configure_rx_dma(uint8_t* buffer_a, uint8_t* buffer_b)
                                             &RxDma_channel_config);
     if(dmac_init_status != CY_DMAC_SUCCESS)
     {
-        handle_error();
+#if DEBUG_PRINT
+        check_status("API Cy_DMAC_Channel_Init failed with error code", dmac_init_status);
+#endif
+        CY_ASSERT(CY_ASSERT_FAILED);
     }
 
     /* Set source and destination for PING descriptor */
     Cy_DMAC_Descriptor_SetSrcAddress(RxDma_HW, RxDma_CHANNEL,
                                      CY_DMAC_DESCRIPTOR_PING,
-                                     (void *) &(KIT_UART_HW->RX_FIFO_RD));
+                                     (void *) &(CYBSP_UART_HW->RX_FIFO_RD));
     Cy_DMAC_Descriptor_SetDstAddress(RxDma_HW, RxDma_CHANNEL,
                                      CY_DMAC_DESCRIPTOR_PING,(void *) buffer_a);
 
     /* Set source and destination for PONG descriptor */
     Cy_DMAC_Descriptor_SetSrcAddress(RxDma_HW, RxDma_CHANNEL,
                                      CY_DMAC_DESCRIPTOR_PONG,
-                                     (void *) &(KIT_UART_HW->RX_FIFO_RD));
+                                     (void *) &(CYBSP_UART_HW->RX_FIFO_RD));
     Cy_DMAC_Descriptor_SetDstAddress(RxDma_HW, RxDma_CHANNEL,
                                      CY_DMAC_DESCRIPTOR_PONG,(void *) buffer_b);
 
@@ -154,7 +157,10 @@ void configure_tx_dma(uint8_t* buffer_a)
                                                &TxDma_ping_config);
     if(dmac_init_status != CY_DMAC_SUCCESS)
     {
-        handle_error();
+#if DEBUG_PRINT
+        check_status("API Cy_DMAC_Descriptor_Init failed with error code", dmac_init_status);
+#endif
+        CY_ASSERT(CY_ASSERT_FAILED);
     }
 
     /* Initialize TxDma channel */
@@ -162,7 +168,10 @@ void configure_tx_dma(uint8_t* buffer_a)
                                             &TxDma_channel_config);
     if(dmac_init_status != CY_DMAC_SUCCESS)
     {
-        handle_error();
+#if DEBUG_PRINT
+        check_status("API Cy_DMAC_Channel_Init failed with error code", dmac_init_status);
+#endif
+        CY_ASSERT(CY_ASSERT_FAILED);
     }
 
     /* Set source and destination for PING descriptor */
@@ -171,7 +180,7 @@ void configure_tx_dma(uint8_t* buffer_a)
                                      (void *) buffer_a);
     Cy_DMAC_Descriptor_SetDstAddress(TxDma_HW, TxDma_CHANNEL,
                                      CY_DMAC_DESCRIPTOR_PING,
-                                     (void *) &KIT_UART_HW->TX_FIFO_WR);
+                                     (void *) &CYBSP_UART_HW->TX_FIFO_WR);
 
    /* Validate the PING descriptor */
     Cy_DMAC_Descriptor_SetState(TxDma_HW, TxDma_CHANNEL,
